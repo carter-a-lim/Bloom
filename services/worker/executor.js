@@ -3,6 +3,11 @@ const path = require('path');
 const { exec } = require('child_process');
 
 const Anthropic = require('@anthropic-ai/sdk');
+
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn('WARNING: ANTHROPIC_API_KEY not set — executor will fail on real tasks');
+}
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Detect test command from project files

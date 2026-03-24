@@ -29,18 +29,19 @@ type TaskEntry = {
   error?: string;
 };
 
-// Store node metadata outside React state to avoid stale closure issues
 const nodeMetaMap: Record<string, { label: string; description: string }> = {};
 
 export default function Canvas() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [prompt, setPrompt] = useState('');
-  const [repoUrl, setRepoUrl] = useState('');
+  const [repos, setRepos] = useState<string[]>([]);
+  const [selectedRepo, setSelectedRepo] = useState('');
+  const [addingRepo, setAddingRepo] = useState(false);
+  const [newRepo, setNewRepo] = useState('');
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const taskCounter = useRef(0);
 
-  // Worker WebSocket — maps TASK_COMPLETE/TASK_FAILED to node colors
   useEffect(() => {
     const connect = () => {
       const ws = new WebSocket('ws://localhost:3001');
@@ -60,11 +61,9 @@ export default function Canvas() {
               )
             );
           }
-        } catch (e) {
-          console.error('Worker WS parse error', e);
-        }
+        } catch (e) { console.error('Worker WS error', e); }
       };
-      ws.onclose = () => setTimeout(connect, 2000); // reconnect
+      ws.onclose = () => setTimeout(connect, 2000);
       ws.onerror = () => ws.close();
       return ws;
     };
@@ -82,10 +81,19 @@ export default function Canvas() {
     (params: Connection) => setEdges((eds) => addEdge(params, eds)), []
   );
 
+  const addRepo = () => {
+    const url = newRepo.trim();
+    if (!url || repos.includes(url)) return;
+    setRepos((r) => [...r, url]);
+    setSelectedRepo(url);
+    setNewRepo('');
+    setAddingRepo(false);
+  };
+
   const runTask = () => {
     if (!prompt.trim()) return;
     const taskPrompt = prompt;
-    const taskRepoUrl = repoUrl;
+    const taskRepoUrl = selectedRepo;
     setPrompt('');
 
     const taskId = `task-${++taskCounter.current}`;
@@ -128,7 +136,6 @@ export default function Canvas() {
 
       if (msg.type === 'done') {
         ws.close();
-        // Flip children to Coding and spawn workers
         setNodes((nds) =>
           nds.map((n) => childNodes.find((c) => c.id === n.id) ? { ...n, data: { ...n.data, state: 'Coding' } } : n)
         );
@@ -160,33 +167,59 @@ export default function Canvas() {
 
   return (
     <div className="flex w-full h-screen bg-gray-950">
-      {/* Canvas */}
-      <div className="flex-1 h-full">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          nodeTypes={nodeTypes}
-          fitView
-        >
-          <Background color="#334155" />
-          <Controls />
-        </ReactFlow>
-      </div>
+      {/* Sidebar — left */}
+      <div className="w-72 h-full flex flex-col bg-gray-900 border-r border-gray-700 text-white flex-shrink-0">
 
-      {/* Sidebar */}
-      <div className="w-80 h-full flex flex-col bg-gray-900 border-l border-gray-700 text-white">
+        {/* Header */}
         <div className="p-4 border-b border-gray-700">
           <h1 className="text-lg font-bold text-white">🌸 Bloom</h1>
-          <p className="text-xs text-gray-400 mt-1">Visual AI task factory</p>
+          <p className="text-xs text-gray-400 mt-0.5">Visual AI task factory</p>
+        </div>
+
+        {/* Repo selector */}
+        <div className="p-3 border-b border-gray-700">
+          <label className="text-xs text-gray-400 uppercase font-semibold mb-1.5 block">Repository</label>
+          {addingRepo ? (
+            <div className="flex gap-1">
+              <input
+                autoFocus
+                type="text"
+                value={newRepo}
+                onChange={(e) => setNewRepo(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addRepo(); if (e.key === 'Escape') setAddingRepo(false); }}
+                placeholder="https://github.com/..."
+                className="flex-1 bg-gray-800 text-white text-xs rounded p-2 border border-blue-500 focus:outline-none placeholder-gray-500 min-w-0"
+              />
+              <button onClick={addRepo} className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 rounded">Add</button>
+              <button onClick={() => setAddingRepo(false)} className="text-gray-400 hover:text-white text-xs px-1">✕</button>
+            </div>
+          ) : (
+            <div className="flex gap-1">
+              <select
+                value={selectedRepo}
+                onChange={(e) => setSelectedRepo(e.target.value)}
+                className="flex-1 bg-gray-800 text-white text-xs rounded p-2 border border-gray-600 focus:outline-none min-w-0"
+              >
+                <option value="">No repo (demo mode)</option>
+                {repos.map((r) => (
+                  <option key={r} value={r}>{r.replace('https://github.com/', '')}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setAddingRepo(true)}
+                className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 rounded border border-gray-600 flex-shrink-0"
+                title="Add repo"
+              >
+                + Add
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Task list */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {tasks.length === 0 && (
-            <p className="text-gray-500 text-sm text-center mt-8">No tasks yet. Start one below.</p>
+            <p className="text-gray-500 text-xs text-center mt-8">No tasks yet.</p>
           )}
           {tasks.map((t) => (
             <div key={t.id} className={`rounded-lg p-3 border ${t.status === 'failed' ? 'bg-red-950 border-red-800' : 'bg-gray-800 border-gray-700'}`}>
@@ -195,22 +228,15 @@ export default function Canvas() {
                 <span className="text-xs text-gray-400 uppercase font-semibold">{t.status}</span>
               </div>
               <p className="text-sm text-white leading-snug">{t.prompt}</p>
-              {t.repoUrl && <p className="text-xs text-blue-400 mt-1 truncate">{t.repoUrl}</p>}
+              {t.repoUrl && <p className="text-xs text-blue-400 mt-1 truncate">{t.repoUrl.replace('https://github.com/', '')}</p>}
               <p className="text-xs text-gray-500 mt-1">{t.nodeIds.length} nodes</p>
               {t.error && <p className="text-xs text-red-400 mt-1 break-words">{t.error}</p>}
             </div>
           ))}
         </div>
 
-        {/* Input */}
+        {/* Prompt input */}
         <div className="p-3 border-t border-gray-700 space-y-2">
-          <input
-            type="text"
-            value={repoUrl}
-            onChange={(e) => setRepoUrl(e.target.value)}
-            placeholder="GitHub repo URL (optional)"
-            className="w-full bg-gray-800 text-white text-sm rounded-lg p-2 border border-gray-600 focus:outline-none focus:border-blue-500 placeholder-gray-500"
-          />
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -227,6 +253,22 @@ export default function Canvas() {
             Run Task
           </button>
         </div>
+      </div>
+
+      {/* Canvas */}
+      <div className="flex-1 h-full">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          fitView
+        >
+          <Background color="#334155" />
+          <Controls />
+        </ReactFlow>
       </div>
     </div>
   );
