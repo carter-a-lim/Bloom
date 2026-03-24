@@ -1,0 +1,33 @@
+{
+  "project_name": "Mustang Architect",
+  "version": "0.1.0-alpha",
+  "core_logic": {
+    "framework": "ROMA (Recursive Open Meta-Agents)",
+    "node_types": {
+      "ROOT": "The entry point; orchestrates high-level project goals.",
+      "PLANNER": "Intermediate node; splits tasks into JSON arrays of sub-tasks.",
+      "EXECUTOR": "Leaf node; performs the actual git worktree coding and testing.",
+      "AGGREGATOR": "Manager node; merges child diffs and runs conflict resolution."
+    },
+    "state_transitions": {
+      "IDLE": "initial",
+      "PLANNING": "blue",
+      "EXECUTING": "yellow",
+      "VERIFYING": "yellow_pulse",
+      "COMPLETED": "green",
+      "FAILED": "red"
+    }
+  },
+  "environment_management": {
+    "tool": "Galactic",
+    "strategy": "Git Worktrees",
+    "isolation": "Network-isolated loopback IPs per node (127.0.0.2, etc.)"
+  },
+  "merging_protocol": {
+    "step_1": "Wait for all child nodes to reach COMPLETED state.",
+    "step_2": "Aggregator agent pulls 'git diff' from all child worktrees.",
+    "step_3": "Run LLM-based Conflict Resolver to synthesize the code.",
+    "step_4": "Apply synthesized code to Parent Worktree and run 'npm test'.",
+    "step_5": "If parent tests pass, mark Parent as COMPLETED."
+  }
+}
