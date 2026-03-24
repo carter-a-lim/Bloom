@@ -39,6 +39,11 @@ const MODELS = [
     { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
     { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' },
   ]},
+  { group: 'Groq (fast, free tier)', options: [
+    { value: 'groq/llama-3.3-70b-versatile', label: 'Llama 3.3 70B' },
+    { value: 'groq/llama-3.1-8b-instant', label: 'Llama 3.1 8B (fastest)' },
+    { value: 'groq/mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
+  ]},
   { group: 'Ollama (local)', options: [
     { value: 'ollama/llama3', label: 'Llama 3' },
     { value: 'ollama/mistral', label: 'Mistral' },
