@@ -225,21 +225,20 @@ export default function Canvas() {
                 </button>
               </motion.div>
             ) : (
-              <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-1.5">
+              <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <select
                   value={selectedRepo}
-                  onChange={(e) => setSelectedRepo(e.target.value)}
-                  className="flex-1 text-xs rounded-lg px-3 py-2 min-w-0 outline-none text-white"
+                  onChange={(e) => {
+                    if (e.target.value === '__add__') { setAddingRepo(true); e.target.value = selectedRepo; }
+                    else setSelectedRepo(e.target.value);
+                  }}
+                  className="w-full text-xs rounded-lg px-3 py-2 outline-none text-white"
                   style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)' }}
                 >
                   <option value="">No repo (demo)</option>
                   {repos.map((r) => <option key={r} value={r}>{repoLabel(r)}</option>)}
+                  <option value="__add__">+ Add repo...</option>
                 </select>
-                <button onClick={() => setAddingRepo(true)}
-                  className="text-xs px-3 py-2 rounded-lg font-medium flex-shrink-0"
-                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)' }}>
-                  + Add
-                </button>
               </motion.div>
             )}
           </AnimatePresence>
