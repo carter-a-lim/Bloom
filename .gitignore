@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+services/*/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -41,3 +42,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# git worktrees
+.trees/
+
+# python
+__pycache__/
+*.pyc
+.venv/
