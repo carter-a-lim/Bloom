@@ -1,8 +1,6 @@
 const express = require('express');
-const { exec, spawn } = require('child_process');
-const crypto = require('crypto');
+const { exec, execFile } = require('child_process');
 const path = require('path');
-const fs = require('fs');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 
@@ -13,10 +11,8 @@ const port = 3000;
 
 app.use(express.json());
 
-// In-memory store for workers
 const workers = {};
 
-// Broadcast a message to all connected WebSocket clients
 function broadcast(msg) {
   const data = JSON.stringify(msg);
   wss.clients.forEach((client) => {
@@ -36,26 +32,20 @@ app.post('/workers', async (req, res) => {
       return res.status(400).json({ error: 'Missing nodeId or taskLabel' });
     }
 
-    const worktreePath = path.join(__dirname, `worker-${nodeId}`);
+    const projectRoot = path.resolve(__dirname, '../../');
+    const args = ['-File', './bloom-daemon.ps1', '-Action', 'spawn', '-TaskID', String(nodeId), '-Branch', String(taskLabel)];
+    const result = await executeFileCommand('powershell.exe', args, projectRoot);
 
-    // Create the worktree
-    await executeCommand(`git worktree add ${worktreePath} -b worker-${nodeId}`);
+    const match = result.match(/http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/);
+    if (!match) throw new Error('Failed to extract IP from PowerShell output: ' + result);
 
-    let isolatedIp = '127.0.0.100';
-    try {
-      const result = await executeCommand('galactic isolate', worktreePath);
-      const match = result.match(/http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/);
-      if (match) isolatedIp = match[0];
-    } catch (e) {
-      console.warn('Galactic not available, using mock IP');
-    }
+    const isolatedIp = match[0];
+    workers[nodeId] = { id: nodeId, isolatedIp, taskLabel, status: 'yellow' };
 
-    workers[nodeId] = { id: nodeId, path: worktreePath, isolatedIp, taskLabel, status: 'yellow' };
-
-    // Respond immediately — tests run async
     res.status(201).json({ workerId: nodeId, status: 'yellow', isolatedIp });
 
-    // Run tests in background and broadcast result
+    // Run tests in the worktree async, broadcast result
+    const worktreePath = path.join(projectRoot, '.trees', nodeId);
     executeCommand('npm test', worktreePath)
       .then(() => {
         workers[nodeId].status = 'green';
@@ -77,33 +67,40 @@ app.get('/workers', (req, res) => {
 });
 
 app.delete('/workers/:id', async (req, res) => {
-    const workerId = req.params.id;
-    const worker = workers[workerId];
+  const workerId = req.params.id;
+  const worker = workers[workerId];
+  if (!worker) return res.status(404).json({ error: 'Worker not found' });
 
-    if (!worker) {
-        return res.status(404).json({ error: 'Worker not found' });
-    }
-
+  try {
+    const projectRoot = path.resolve(__dirname, '../../');
+    const args = ['-File', './bloom-daemon.ps1', '-Action', 'kill', '-TaskID', String(workerId)];
     try {
-        await executeCommand(`git worktree remove --force ${worker.path}`);
-        await executeCommand(`git branch -D worker-${workerId}`);
-        delete workers[workerId];
-        res.json({ message: 'Worker removed successfully' });
-    } catch (error) {
-        console.error('Failed to remove worker:', error);
-        res.status(500).json({ error: error.message });
+      await executeFileCommand('powershell.exe', args, projectRoot);
+    } catch (e) {
+      console.warn('PowerShell kill failed, removing from memory anyway:', e.message);
     }
+    delete workers[workerId];
+    res.json({ message: 'Worker removed successfully' });
+  } catch (error) {
+    console.error('Failed to remove worker:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
+
+function executeFileCommand(file, args, cwd = __dirname) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { cwd }, (error, stdout, stderr) => {
+      if (error) reject(new Error(`Command failed: ${file}\n${stderr}`));
+      else resolve(stdout.trim());
+    });
+  });
+}
 
 function executeCommand(command, cwd = __dirname) {
   return new Promise((resolve, reject) => {
     exec(command, { cwd }, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Error executing ${command}:`, stderr);
-        reject(new Error(`Command failed: ${command}\n${stderr}`));
-      } else {
-        resolve(stdout.trim());
-      }
+      if (error) reject(new Error(`Command failed: ${command}\n${stderr}`));
+      else resolve(stdout.trim());
     });
   });
 }
