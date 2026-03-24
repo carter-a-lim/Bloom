@@ -1,22 +1,90 @@
-# Bloom 
-**Bloom ** is an open-source, AI-native "Visual Factory" for software engineering. Instead of chatting with an AI, you map your project on an infinite canvas where tasks recursively split into atomic nodes and "bubble up" to a final merge.
+# Bloom
+An open-source, AI-native "Visual Factory" for software engineering. Map your project on an infinite canvas — tasks recursively split into atomic nodes and bubble up to a final merge.
 
-## 🛠 Tech Stack
-- **Frontend:** Next.js 16 (App Router), React Flow (Canvas engine), Tailwind CSS.
-- **Orchestration:** ROMA Framework (Recursive Open Meta-Agents) for split/merge logic.
-- **Isolation:** Galactic CLI for managing Git Worktrees and network-isolated dev environments.
-- **Brain:** MCP (Model Context Protocol) to swap between Claude 3.5, GPT-5, and Local Llama.
-- **Sandbox:** E2B for secure code execution and automated testing.
+## What's Actually Working
+- Canvas UI (React Flow) with color-coded node states
+- Atomizer: WebSocket service that generates a task tree *(simulated, no real AI yet)*
+- Worker: REST API that creates/deletes Git worktrees via Galactic CLI *(mocked if Galactic isn't installed)*
+- Aggregator: Uses Claude to resolve merge conflicts across child branches
 
-## 🌀 The "Bubble Up" Workflow
-1. **The Root:** User enters a high-level goal (e.g., "Build a Stripe integration").
-2. **The Atomizer:** A ROMA-based agent decides if the task is "Atomic" (one-file fix) or "Complex."
-3. **The Planner:** If complex, it spawns child nodes (e.g., "Webhooks", "Frontend UI", "Database").
-4. **The Execution:** Each node runs in a **Galactic Git Worktree**. It codes, tests, and validates.
-5. **The Aggregator:** Parent nodes act as "Managers." Once all children are Green (Passed), the Manager merges the worktree diffs and validates the parent state.
+> The services run independently. End-to-end orchestration (canvas → atomizer → worker → aggregator) is not yet wired up.
 
-## 🎨 Visual States
-- **Thinking (Blue):** Agent is using ROMA Planner to map sub-tasks.
-- **Coding (Yellow):** Active write operations in a Galactic Worktree.
-- **Success (Green):** All unit tests passed in E2B; ready to bubble up.
-- **Blocked (Red):** Error detected or human intervention required.
+## Prerequisites
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) running
+- A Claude API key from [console.anthropic.com](https://console.anthropic.com)
+- **WSL users only:** [Galactic CLI](https://github.com/idolaman/galactic-ide) daemon running on Windows
+
+## Setup
+
+```bash
+git clone https://github.com/your-org/bloom.git
+cd bloom
+cp .env.example .env
+# Add your CLAUDE_API_KEY to .env
+```
+
+**WSL users — run this in a Windows PowerShell window first:**
+```powershell
+galactic daemon start
+```
+
+**Generate lockfiles before first run** (only needed once):
+```bash
+cd services/worker && npm install && cd ../..
+cd services/aggregator && npm install && cd ../..
+```
+
+**Start all services:**
+```bash
+./start-bloom.sh -d
+```
+
+**Open the canvas:** http://localhost:3000
+
+## Services
+| Service | Port | Description |
+|---------|------|-------------|
+| Frontend | 3000 | React Flow canvas UI |
+| Worker | 3001 | Git worktree manager |
+| Atomizer | 8000 | Task splitting via WebSocket |
+| Aggregator | — | Claude-powered diff merger |
+
+## Visual States
+| Color | Meaning |
+|-------|---------|
+| 🔵 Blue | Planning sub-tasks |
+| 🟡 Yellow | Active write operations |
+| 🟢 Green | Tests passed, ready to bubble up |
+| 🔴 Red | Error or human intervention required |
+
+## Running Services Individually
+```bash
+# Frontend
+npm install && npm run dev
+
+# Worker
+cd services/worker && npm install && node index.js
+
+# Aggregator
+cd services/aggregator && npm install && node aggregator.js
+
+# Atomizer
+cd services/atomizer && pip install -r requirements.txt && uvicorn main:app --reload
+```
+
+## Common Issues
+
+**`ERROR: Galactic daemon not reachable`**
+Start the Galactic daemon on Windows before running `./start-bloom.sh`. If you don't have Galactic, run `docker compose up -d` directly — the worker will mock the IP isolation automatically.
+
+**`npm ci` fails during Docker build**
+You need `package-lock.json` files in `services/worker` and `services/aggregator`. Run `npm install` in each directory first (see Setup above).
+
+**`CLAUDE_API_KEY` warning on startup**
+The aggregator won't resolve merge conflicts without it. Add `CLAUDE_API_KEY=sk-ant-...` to your `.env` file.
+
+## Roadmap
+- 🚧 Real AI in the atomizer (currently hardcoded simulation)
+- 🚧 End-to-end orchestration across all services
+- 🚧 MCP model swapping (Claude / GPT-4o / Local Llama)
+- 🚧 E2B sandbox for secure code execution
