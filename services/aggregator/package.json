@@ -1,0 +1,25 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo 'Tests passed.'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/carter-a-lim/Bloom.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/carter-a-lim/Bloom/issues"
+  },
+  "homepage": "https://github.com/carter-a-lim/Bloom#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "dotenv": "^17.3.1"
+  }
+}
