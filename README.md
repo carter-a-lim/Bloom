@@ -1,5 +1,5 @@
-# Bloom 
-**Bloom ** is an open-source, AI-native "Visual Factory" for software engineering. Instead of chatting with an AI, you map your project on an infinite canvas where tasks recursively split into atomic nodes and "bubble up" to a final merge.
+# Bloom
+**Bloom** is an open-source, AI-native "Visual Factory" for software engineering. Instead of chatting with an AI, you map your project on an infinite canvas where tasks recursively split into atomic nodes and "bubble up" to a final merge.
 
 ## 🛠 Tech Stack
 - **Frontend:** Next.js 16 (App Router), React Flow (Canvas engine), Tailwind CSS.
@@ -20,3 +20,12 @@
 - **Coding (Yellow):** Active write operations in a Galactic Worktree.
 - **Success (Green):** All unit tests passed in E2B; ready to bubble up.
 - **Blocked (Red):** Error detected or human intervention required.
+
+## Getting Started
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to see the canvas.

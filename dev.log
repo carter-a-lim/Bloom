@@ -1,0 +1,13 @@
+
+> flow-app@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.1 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.2:3000
+✓ Ready in 542ms
+
+○ Compiling / ...
+ GET / 200 in 5.8s (next.js: 5.4s, application-code: 412ms)
+✓ Compiled in 19ms
+ GET / 200 in 102ms (next.js: 11ms, application-code: 91ms)
