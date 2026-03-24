@@ -23,7 +23,7 @@ fi
 # Start worker and aggregator as host processes (they need filesystem + git access)
 echo "Starting worker service on port 3001..."
 cd services/worker
-ANTHROPIC_API_KEY="${CLAUDE_API_KEY}" AGGREGATOR_URL="http://localhost:3002" node index.js &
+ANTHROPIC_API_KEY="${CLAUDE_API_KEY}" AGGREGATOR_URL="http://localhost:3002" OLLAMA_API_BASE="${OLLAMA_API_BASE}" node index.js &
 WORKER_PID=$!
 cd ../..
 

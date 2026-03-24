@@ -55,7 +55,8 @@ async def websocket_endpoint(websocket: WebSocket):
         response = await litellm.acompletion(
             model=model,
             messages=messages,
-            stream=True
+            stream=True,
+            api_base=os.environ.get("OLLAMA_API_BASE") if model.startswith("ollama/") else None
         )
 
         # We'll buffer the text to find complete JSON objects incrementally
