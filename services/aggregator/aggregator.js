@@ -1,11 +1,36 @@
 const { exec } = require('child_process');
 const fs = require('fs');
-const Anthropic = require('@anthropic-ai/sdk');
 require('dotenv').config();
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || 'dummy_key',
-});
+const MODEL = process.env.MODEL || 'claude-3-5-sonnet-20241022';
+const OLLAMA_BASE = process.env.OLLAMA_API_BASE || 'http://localhost:11434';
+const isOllama = MODEL.startsWith('ollama/');
+
+async function llmCall(system, userPrompt, maxTokens = 4096) {
+  if (isOllama) {
+    const ollamaModel = MODEL.replace('ollama/', '');
+    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: ollamaModel,
+        stream: false,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: userPrompt }],
+      }),
+    });
+    const data = await res.json();
+    return data.message?.content?.trim() || '';
+  } else {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const response = await client.messages.create({
+      model: MODEL, max_tokens: maxTokens, temperature: 0,
+      system,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+    return response.content[0].text.trim();
+  }
+}
 
 function runCommand(command) {
   return new Promise((resolve, reject) => {
@@ -100,29 +125,13 @@ ${diffsText}
 `;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 4096,
-      temperature: 0,
-      system: "You are an expert developer reviewing code for logical conflicts and providing bash script fixes.",
-      messages: [
-        { role: "user", content: prompt }
-      ]
-    });
-
-    const text = response.content[0].text.trim();
-    if (text === "NO_LOGICAL_CONFLICTS") {
-        return null; // no script needed
-    }
-
-    // Extract bash script from markdown blocks
+    const text = await llmCall(
+      "You are an expert developer reviewing code for logical conflicts and providing bash script fixes.",
+      prompt
+    );
+    if (text === "NO_LOGICAL_CONFLICTS") return null;
     const match = text.match(/```(?:bash|sh)\n([\s\S]*?)\n```/);
-    if (match && match[1]) {
-        return match[1];
-    }
-
-    // Fallback if the LLM didn't format it right but we know it gave something
-    return null;
+    return match?.[1] || null;
   } catch (error) {
     console.error("Error communicating with LLM for logical conflicts:", error);
     return null;
@@ -143,16 +152,11 @@ ${fileContent}
 `;
 
     try {
-        const response = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20241022",
-            max_tokens: 4096,
-            temperature: 0,
-            system: "You are an expert developer resolving git merge conflicts. Output ONLY the raw resolved file content.",
-            messages: [
-                { role: "user", content: prompt }
-            ]
-        });
-        return response.content[0].text.trim();
+        const resolved = await llmCall(
+          "You are an expert developer resolving git merge conflicts. Output ONLY the raw resolved file content.",
+          prompt
+        );
+        return resolved;
     } catch (error) {
         console.error("Error resolving conflict with LLM:", error);
         throw error;

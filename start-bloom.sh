@@ -29,7 +29,7 @@ cd ../..
 
 echo "Starting aggregator service on port 3002..."
 cd services/aggregator
-ANTHROPIC_API_KEY="${CLAUDE_API_KEY}" node aggregator.js &
+ANTHROPIC_API_KEY="${CLAUDE_API_KEY}" OLLAMA_API_BASE="${OLLAMA_API_BASE}" MODEL="${MODEL}" node aggregator.js &
 AGGREGATOR_PID=$!
 cd ../..
 
