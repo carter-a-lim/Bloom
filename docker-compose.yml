@@ -1,0 +1,57 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_ATOMIZER_WS_URL=ws://atomizer:8000/ws/atomizer
+    depends_on:
+      atomizer:
+        condition: service_healthy
+    networks:
+      - bloom-net
+
+  atomizer:
+    build:
+      context: ./services/atomizer
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bloom-net
+
+  worker:
+    build:
+      context: ./services/worker
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      - GALACTIC_CONFIG_PATH=${GALACTIC_CONFIG_PATH}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/workers', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bloom-net
+
+  aggregator:
+    build:
+      context: ./services/aggregator
+      dockerfile: Dockerfile
+    environment:
+      - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
+    networks:
+      - bloom-net
+
+networks:
+  bloom-net:
+    driver: bridge
