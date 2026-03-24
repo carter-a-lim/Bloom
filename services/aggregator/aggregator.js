@@ -306,10 +306,12 @@ const aggregatorApp = express();
 aggregatorApp.use(express.json());
 
 aggregatorApp.post('/aggregate', async (req, res) => {
-  const { parentBranch, childBranches } = req.body;
+  const { parentBranch, childBranches, repoPath } = req.body;
   if (!parentBranch || !Array.isArray(childBranches) || childBranches.length === 0) {
     return res.status(400).json({ error: 'Missing parentBranch or childBranches' });
   }
+  // If a repoPath is provided, run aggregation in that directory
+  if (repoPath) process.chdir(repoPath);
   try {
     await aggregatorNode(parentBranch, childBranches);
     res.json({ status: 'success' });
