@@ -5,6 +5,7 @@ import {
   ReactFlow,
   Controls,
   Background,
+  BackgroundVariant,
   applyNodeChanges,
   applyEdgeChanges,
   Node,
@@ -15,6 +16,7 @@ import {
   addEdge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { motion, AnimatePresence } from 'framer-motion';
 import TaskNode, { TaskNodeData } from './TaskNode';
 
 const nodeTypes = { task: TaskNode };
@@ -30,6 +32,18 @@ type TaskEntry = {
 };
 
 const nodeMetaMap: Record<string, { label: string; description: string }> = {};
+
+const MODELS = [
+  { group: 'Claude', options: [
+    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' },
+  ]},
+  { group: 'Ollama (local)', options: [
+    { value: 'ollama/llama3', label: 'Llama 3' },
+    { value: 'ollama/mistral', label: 'Mistral' },
+    { value: 'ollama/codellama', label: 'CodeLlama' },
+  ]},
+];
 
 export default function Canvas() {
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -110,24 +124,16 @@ export default function Canvas() {
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
-
       if (msg.type === 'node') {
         const { id, label, description, parentId } = msg.data;
         const isRoot = !parentId;
         if (isRoot) rootId = id;
-
         nodeMetaMap[id] = { label, description: description || '' };
-
         const newNode: Node<TaskNodeData> = {
-          id,
-          type: 'task',
-          position: {
-            x: isRoot ? 400 : 100 + childNodes.length * 260,
-            y: yOffset + (isRoot ? 0 : 180),
-          },
+          id, type: 'task',
+          position: { x: isRoot ? 400 : 100 + childNodes.length * 260, y: yOffset + (isRoot ? 0 : 180) },
           data: { label, state: 'Thinking' },
         };
-
         setNodes((nds) => [...nds, newNode]);
         if (parentId) {
           setEdges((eds) => [...eds, { id: `e-${parentId}-${id}`, source: parentId, target: id }]);
@@ -135,7 +141,6 @@ export default function Canvas() {
         }
         setTasks((ts) => ts.map((t) => t.id === taskId ? { ...t, nodeIds: [...t.nodeIds, id] } : t));
       }
-
       if (msg.type === 'done') {
         ws.close();
         setNodes((nds) =>
@@ -147,136 +152,194 @@ export default function Canvas() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              nodeId: child.id,
-              taskLabel: meta.label,
-              taskDescription: meta.description,
-              parentId: rootId,
-              siblingCount: childNodes.length,
-              repoUrl: taskRepoUrl || undefined,
-              model: taskModel,
+              nodeId: child.id, taskLabel: meta.label, taskDescription: meta.description,
+              parentId: rootId, siblingCount: childNodes.length,
+              repoUrl: taskRepoUrl || undefined, model: taskModel,
             }),
           }).catch(console.error);
         }
       }
     };
-
-    ws.onerror = () => {
-      setTasks((ts) => ts.map((t) => t.id === taskId ? { ...t, status: 'failed', error: 'Atomizer connection failed' } : t));
-    };
+    ws.onerror = () => setTasks((ts) => ts.map((t) => t.id === taskId ? { ...t, status: 'failed', error: 'Atomizer connection failed' } : t));
   };
 
-  const statusDot = (s: TaskEntry['status']) =>
-    s === 'running' ? 'bg-yellow-400 animate-pulse' : s === 'done' ? 'bg-green-400' : 'bg-red-400';
+  const repoLabel = (url: string) => url.replace('https://github.com/', '').replace('http://github.com/', '');
 
   return (
-    <div className="flex w-full h-screen bg-gray-950">
-      {/* Sidebar — left */}
-      <div className="w-72 h-full flex flex-col bg-gray-900 border-r border-gray-700 text-white flex-shrink-0">
+    <div className="flex w-full h-screen" style={{ background: '#0a0a0f' }}>
 
-        {/* Header */}
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-lg font-bold text-white">🌸 Bloom</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Visual AI task factory</p>
+      {/* Sidebar */}
+      <motion.div
+        initial={{ x: -20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+        className="w-72 h-full flex flex-col flex-shrink-0"
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          borderRight: '1px solid rgba(255,255,255,0.07)',
+        }}
+      >
+        {/* Logo */}
+        <div className="px-5 py-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-base"
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}>
+              🌸
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold text-white tracking-wide">Bloom</h1>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>Visual AI factory</p>
+            </div>
+          </div>
         </div>
 
         {/* Repo selector */}
-        <div className="p-3 border-b border-gray-700">
-          <label className="text-xs text-gray-400 uppercase font-semibold mb-1.5 block">Repository</label>
-          {addingRepo ? (
-            <div className="flex gap-1">
-              <input
-                autoFocus
-                type="text"
-                value={newRepo}
-                onChange={(e) => setNewRepo(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') addRepo(); if (e.key === 'Escape') setAddingRepo(false); }}
-                placeholder="https://github.com/..."
-                className="flex-1 bg-gray-800 text-white text-xs rounded p-2 border border-blue-500 focus:outline-none placeholder-gray-500 min-w-0"
-              />
-              <button onClick={addRepo} className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 rounded">Add</button>
-              <button onClick={() => setAddingRepo(false)} className="text-gray-400 hover:text-white text-xs px-1">✕</button>
-            </div>
-          ) : (
-            <div className="flex gap-1">
-              <select
-                value={selectedRepo}
-                onChange={(e) => setSelectedRepo(e.target.value)}
-                className="flex-1 bg-gray-800 text-white text-xs rounded p-2 border border-gray-600 focus:outline-none min-w-0"
-              >
-                <option value="">No repo (demo mode)</option>
-                {repos.map((r) => (
-                  <option key={r} value={r}>{r.replace('https://github.com/', '')}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => setAddingRepo(true)}
-                className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 rounded border border-gray-600 flex-shrink-0"
-                title="Add repo"
-              >
-                + Add
-              </button>
-            </div>
-          )}
+        <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <label className="text-xs font-medium mb-2 block" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            REPOSITORY
+          </label>
+          <AnimatePresence mode="wait">
+            {addingRepo ? (
+              <motion.div key="adding" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex gap-1.5">
+                <input
+                  autoFocus
+                  type="text"
+                  value={newRepo}
+                  onChange={(e) => setNewRepo(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addRepo(); if (e.key === 'Escape') setAddingRepo(false); }}
+                  placeholder="github.com/user/repo"
+                  className="flex-1 text-xs rounded-lg px-3 py-2 min-w-0 outline-none text-white placeholder-white/20"
+                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(139,92,246,0.5)' }}
+                />
+                <button onClick={addRepo}
+                  className="text-xs px-3 py-2 rounded-lg font-medium text-white flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}>
+                  Add
+                </button>
+                <button onClick={() => setAddingRepo(false)}
+                  className="text-xs px-2 rounded-lg"
+                  style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.05)' }}>
+                  ✕
+                </button>
+              </motion.div>
+            ) : (
+              <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-1.5">
+                <select
+                  value={selectedRepo}
+                  onChange={(e) => setSelectedRepo(e.target.value)}
+                  className="flex-1 text-xs rounded-lg px-3 py-2 min-w-0 outline-none text-white"
+                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)' }}
+                >
+                  <option value="">No repo (demo)</option>
+                  {repos.map((r) => <option key={r} value={r}>{repoLabel(r)}</option>)}
+                </select>
+                <button onClick={() => setAddingRepo(true)}
+                  className="text-xs px-3 py-2 rounded-lg font-medium flex-shrink-0"
+                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)' }}>
+                  + Add
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Model picker */}
-        <div className="p-3 border-b border-gray-700">
-          <label className="text-xs text-gray-400 uppercase font-semibold mb-1.5 block">Model</label>
+        <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <label className="text-xs font-medium mb-2 block" style={{ color: 'rgba(255,255,255,0.4)' }}>MODEL</label>
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className="w-full bg-gray-800 text-white text-xs rounded p-2 border border-gray-600 focus:outline-none"
+            className="w-full text-xs rounded-lg px-3 py-2 outline-none text-white"
+            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)' }}
           >
-            <optgroup label="Claude (API key required)">
-              <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-              <option value="claude-3-haiku-20240307">Claude 3 Haiku (faster)</option>
-            </optgroup>
-            <optgroup label="Ollama (local, free)">
-              <option value="ollama/llama3">Llama 3</option>
-              <option value="ollama/mistral">Mistral</option>
-              <option value="ollama/codellama">CodeLlama</option>
-            </optgroup>
+            {MODELS.map((g) => (
+              <optgroup key={g.group} label={g.group}>
+                {g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </optgroup>
+            ))}
           </select>
         </div>
 
         {/* Task list */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
           {tasks.length === 0 && (
-            <p className="text-gray-500 text-xs text-center mt-8">No tasks yet.</p>
-          )}
-          {tasks.map((t) => (
-            <div key={t.id} className={`rounded-lg p-3 border ${t.status === 'failed' ? 'bg-red-950 border-red-800' : 'bg-gray-800 border-gray-700'}`}>
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDot(t.status)}`} />
-                <span className="text-xs text-gray-400 uppercase font-semibold">{t.status}</span>
-              </div>
-              <p className="text-sm text-white leading-snug">{t.prompt}</p>
-              {t.repoUrl && <p className="text-xs text-blue-400 mt-1 truncate">{t.repoUrl.replace('https://github.com/', '')}</p>}
-              <p className="text-xs text-gray-500 mt-1">{t.nodeIds.length} nodes</p>
-              {t.error && <p className="text-xs text-red-400 mt-1 break-words">{t.error}</p>}
+            <div className="text-center mt-10">
+              <p className="text-2xl mb-2">✦</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.25)' }}>No tasks yet</p>
             </div>
-          ))}
+          )}
+          <AnimatePresence>
+            {tasks.map((t) => (
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="rounded-xl p-3"
+                style={{
+                  background: t.status === 'failed'
+                    ? 'rgba(239,68,68,0.08)'
+                    : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${t.status === 'failed' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.07)'}`,
+                }}
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    t.status === 'running' ? 'bg-yellow-400 animate-pulse' :
+                    t.status === 'done' ? 'bg-emerald-400' : 'bg-red-400'
+                  }`} />
+                  <span className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                    {t.status === 'running' ? 'Running' : t.status === 'done' ? 'Done' : 'Failed'}
+                  </span>
+                  <span className="ml-auto text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                    {t.nodeIds.length} nodes
+                  </span>
+                </div>
+                <p className="text-sm text-white leading-snug">{t.prompt}</p>
+                {t.repoUrl && (
+                  <p className="text-xs mt-1 truncate" style={{ color: 'rgba(139,92,246,0.8)' }}>
+                    {repoLabel(t.repoUrl)}
+                  </p>
+                )}
+                {t.error && (
+                  <p className="text-xs mt-1.5 break-words" style={{ color: 'rgba(239,68,68,0.8)' }}>{t.error}</p>
+                )}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
 
         {/* Prompt input */}
-        <div className="p-3 border-t border-gray-700 space-y-2">
+        <div className="px-4 py-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runTask(); } }}
-            placeholder="Describe a task... (Enter to run)"
-            className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 resize-none border border-gray-600 focus:outline-none focus:border-blue-500 placeholder-gray-500"
+            placeholder="Describe a task..."
             rows={3}
+            className="w-full text-sm rounded-xl px-3 py-2.5 resize-none outline-none text-white placeholder-white/20"
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              lineHeight: '1.5',
+            }}
+            onFocus={(e) => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+            onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
           />
-          <button
+          <motion.button
             onClick={runTask}
             disabled={!prompt.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-semibold py-2 rounded-lg text-sm transition-colors"
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.98 }}
+            className="mt-2 w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-30 transition-opacity"
+            style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}
           >
             Run Task
-          </button>
+          </motion.button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Canvas */}
       <div className="flex-1 h-full">
@@ -288,8 +351,9 @@ export default function Canvas() {
           onConnect={onConnect}
           nodeTypes={nodeTypes}
           fitView
+          style={{ background: 'transparent' }}
         >
-          <Background color="#334155" />
+          <Background variant={BackgroundVariant.Dots} color="rgba(255,255,255,0.06)" gap={28} size={1} />
           <Controls />
         </ReactFlow>
       </div>
