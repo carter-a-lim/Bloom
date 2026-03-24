@@ -63,12 +63,13 @@ function runCommand(cmd, cwd) {
   });
 }
 
-async function executeTask(repoPath, taskLabel, taskDescription) {
+async function executeTask(repoPath, taskLabel, taskDescription, model) {
+  model = model || process.env.MODEL || 'claude-3-5-sonnet-20241022';
   const fileTree = getFileTree(repoPath);
 
   // Step 1: Ask LLM which files are relevant
   const planResp = await client.messages.create({
-    model: 'claude-3-5-sonnet-20241022',
+    model,
     max_tokens: 1024,
     system: 'You are a senior software engineer. Given a file tree and a task, return ONLY a JSON array of file paths (relative to repo root) that need to be read or modified. No explanation.',
     messages: [{ role: 'user', content: `Task: ${taskLabel}\n${taskDescription || ''}\n\nFile tree:\n${fileTree}` }],
@@ -85,7 +86,7 @@ async function executeTask(repoPath, taskLabel, taskDescription) {
 
   // Step 2: Ask LLM to implement the task
   const codeResp = await client.messages.create({
-    model: 'claude-3-5-sonnet-20241022',
+    model,
     max_tokens: 4096,
     system: `You are a senior software engineer implementing a task in an existing codebase.
 Output ONLY a JSON array of file changes, each with "path" (relative) and "content" (full file content).

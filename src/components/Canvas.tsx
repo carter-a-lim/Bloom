@@ -39,6 +39,7 @@ export default function Canvas() {
   const [selectedRepo, setSelectedRepo] = useState('');
   const [addingRepo, setAddingRepo] = useState(false);
   const [newRepo, setNewRepo] = useState('');
+  const [model, setModel] = useState('claude-3-5-sonnet-20241022');
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const taskCounter = useRef(0);
 
@@ -94,6 +95,7 @@ export default function Canvas() {
     if (!prompt.trim()) return;
     const taskPrompt = prompt;
     const taskRepoUrl = selectedRepo;
+    const taskModel = model;
     setPrompt('');
 
     const taskId = `task-${++taskCounter.current}`;
@@ -104,7 +106,7 @@ export default function Canvas() {
     setTasks((ts) => [...ts, { id: taskId, prompt: taskPrompt, repoUrl: taskRepoUrl, status: 'running', nodeIds: [] }]);
 
     const ws = new WebSocket('ws://localhost:8000/ws/atomizer');
-    ws.onopen = () => ws.send(JSON.stringify({ prompt: taskPrompt }));
+    ws.onopen = () => ws.send(JSON.stringify({ prompt: taskPrompt, model: taskModel }));
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
@@ -151,6 +153,7 @@ export default function Canvas() {
               parentId: rootId,
               siblingCount: childNodes.length,
               repoUrl: taskRepoUrl || undefined,
+              model: taskModel,
             }),
           }).catch(console.error);
         }
@@ -214,6 +217,26 @@ export default function Canvas() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* Model picker */}
+        <div className="p-3 border-b border-gray-700">
+          <label className="text-xs text-gray-400 uppercase font-semibold mb-1.5 block">Model</label>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="w-full bg-gray-800 text-white text-xs rounded p-2 border border-gray-600 focus:outline-none"
+          >
+            <optgroup label="Claude (API key required)">
+              <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+              <option value="claude-3-haiku-20240307">Claude 3 Haiku (faster)</option>
+            </optgroup>
+            <optgroup label="Ollama (local, free)">
+              <option value="ollama/llama3">Llama 3</option>
+              <option value="ollama/mistral">Mistral</option>
+              <option value="ollama/codellama">CodeLlama</option>
+            </optgroup>
+          </select>
         </div>
 
         {/* Task list */}

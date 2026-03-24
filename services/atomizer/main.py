@@ -27,6 +27,7 @@ async def websocket_endpoint(websocket: WebSocket):
         data = await websocket.receive_text()
         request = json.loads(data)
         prompt = request.get("prompt", "Default Task")
+        model = request.get("model") or os.environ.get("MODEL", "claude-3-5-sonnet-20241022")
 
         # Root node
         root_id = str(uuid.uuid4())
@@ -45,7 +46,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "Output ONLY the JSON array."
         )
 
-        model = os.environ.get("MODEL", "claude-3-5-sonnet-20241022")
+        model = request.get("model") or os.environ.get("MODEL", "claude-3-5-sonnet-20241022")
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}

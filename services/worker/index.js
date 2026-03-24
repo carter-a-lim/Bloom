@@ -47,14 +47,14 @@ async function ensureRepo(repoUrl) {
 
 app.post('/workers', async (req, res) => {
   try {
-    const { nodeId, taskLabel, taskDescription, parentId, siblingCount, repoUrl } = req.body;
+    const { nodeId, taskLabel, taskDescription, parentId, siblingCount, repoUrl, model } = req.body;
     if (!nodeId || !taskLabel) return res.status(400).json({ error: 'Missing nodeId or taskLabel' });
 
     const branchName = `bloom-${nodeId}`;
-    workers[nodeId] = { id: nodeId, taskLabel, parentId, branchName, status: 'yellow' };
+    workers[nodeId] = { id: nodeId, taskLabel, parentId, branchName, status: 'yellow', model };
 
     if (parentId && siblingCount) {
-      if (!parentGroups[parentId]) parentGroups[parentId] = { total: siblingCount, completed: 0, branches: [], repoUrl };
+      if (!parentGroups[parentId]) parentGroups[parentId] = { total: siblingCount, completed: 0, branches: [], repoUrl, model };
       parentGroups[parentId].branches.push(branchName);
     }
 
@@ -69,7 +69,7 @@ app.post('/workers', async (req, res) => {
           const baseRepo = await ensureRepo(repoUrl);
           worktreePath = path.join(REPOS_DIR, `worktree-${nodeId}`);
           await executeCommand(`git worktree add -b ${branchName} ${worktreePath}`, baseRepo);
-          await executeTask(worktreePath, taskLabel, taskDescription);
+          await executeTask(worktreePath, taskLabel, taskDescription, workers[nodeId].model);
         } else {
           // Fallback: no repo, just run existing tests
           worktreePath = path.resolve(__dirname, '../../');
