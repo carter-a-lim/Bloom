@@ -18,6 +18,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import TaskNode, { TaskNodeData } from './TaskNode';
+import GlassSelect from './GlassSelect';
 
 const nodeTypes = { task: TaskNode };
 type TaskState = 'Thinking' | 'Coding' | 'Success' | 'Blocked';
@@ -204,41 +205,30 @@ export default function Canvas() {
             {addingRepo ? (
               <motion.div key="adding" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex gap-1.5">
                 <input
-                  autoFocus
-                  type="text"
-                  value={newRepo}
+                  autoFocus type="text" value={newRepo}
                   onChange={(e) => setNewRepo(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') addRepo(); if (e.key === 'Escape') setAddingRepo(false); }}
                   placeholder="github.com/user/repo"
-                  className="flex-1 text-xs rounded-lg px-3 py-2 min-w-0 outline-none text-white placeholder-white/20"
-                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(139,92,246,0.5)' }}
+                  className="flex-1 text-xs rounded-lg px-3 py-2 min-w-0 outline-none text-white"
+                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(139,92,246,0.5)', color: 'white' }}
                 />
-                <button onClick={addRepo}
-                  className="text-xs px-3 py-2 rounded-lg font-medium text-white flex-shrink-0"
-                  style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}>
-                  Add
-                </button>
-                <button onClick={() => setAddingRepo(false)}
-                  className="text-xs px-2 rounded-lg"
-                  style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.05)' }}>
-                  ✕
-                </button>
+                <button onClick={addRepo} className="text-xs px-3 py-2 rounded-lg font-medium text-white flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}>Add</button>
+                <button onClick={() => setAddingRepo(false)} className="text-xs px-2 rounded-lg"
+                  style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.05)' }}>✕</button>
               </motion.div>
             ) : (
               <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <select
+                <GlassSelect
                   value={selectedRepo}
-                  onChange={(e) => {
-                    if (e.target.value === '__add__') { setAddingRepo(true); e.target.value = selectedRepo; }
-                    else setSelectedRepo(e.target.value);
-                  }}
-                  className="w-full text-xs rounded-lg px-3 py-2 outline-none text-white"
-                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)' }}
-                >
-                  <option value="">No repo (demo)</option>
-                  {repos.map((r) => <option key={r} value={r}>{repoLabel(r)}</option>)}
-                  <option value="__add__">+ Add repo...</option>
-                </select>
+                  onChange={(val) => { if (val === '__add__') setAddingRepo(true); else setSelectedRepo(val); }}
+                  placeholder="No repo (demo)"
+                  options={[
+                    { value: '', label: 'No repo (demo)' },
+                    ...repos.map((r) => ({ value: r, label: repoLabel(r) })),
+                    { value: '__add__', label: '+ Add repo...' },
+                  ]}
+                />
               </motion.div>
             )}
           </AnimatePresence>
@@ -247,18 +237,11 @@ export default function Canvas() {
         {/* Model picker */}
         <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           <label className="text-xs font-medium mb-2 block" style={{ color: 'rgba(255,255,255,0.4)' }}>MODEL</label>
-          <select
+          <GlassSelect
             value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className="w-full text-xs rounded-lg px-3 py-2 outline-none text-white"
-            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)' }}
-          >
-            {MODELS.map((g) => (
-              <optgroup key={g.group} label={g.group}>
-                {g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </optgroup>
-            ))}
-          </select>
+            onChange={setModel}
+            options={MODELS.flatMap((g) => g.options)}
+          />
         </div>
 
         {/* Task list */}
