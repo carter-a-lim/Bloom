@@ -6,7 +6,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_ATOMIZER_WS_URL=ws://atomizer:8000/ws/atomizer
+      - NEXT_PUBLIC_ATOMIZER_WS_URL=ws://localhost:8000/ws/atomizer
+      - NEXT_PUBLIC_WORKER_WS_URL=ws://localhost:3001
+      - NEXT_PUBLIC_WORKER_URL=http://localhost:3001
     depends_on:
       atomizer:
         condition: service_healthy
@@ -19,41 +21,13 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - bloom-net
-
-  worker:
-    build:
-      context: ./services/worker
-      dockerfile: Dockerfile
-    ports:
-      - "3001:3000"
-    environment:
-      - GALACTIC_CONFIG_PATH=${GALACTIC_CONFIG_PATH}
-      - AGGREGATOR_URL=http://aggregator:3002
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/workers', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    depends_on:
-      - aggregator
-    networks:
-      - bloom-net
-
-  aggregator:
-    build:
-      context: ./services/aggregator
-      dockerfile: Dockerfile
-    ports:
-      - "3002:3002"
-    environment:
-      - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
     networks:
       - bloom-net
 

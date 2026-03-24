@@ -2,8 +2,6 @@
 set -e
 
 # Check if the Galactic daemon is reachable on the Windows host.
-# In WSL, the Windows host is accessible via the gateway IP (typically the first
-# address in /etc/resolv.conf nameserver, or via $(ip route show | awk '/default/ {print $3}') ).
 WINDOWS_HOST=$(ip route show | awk '/default/ { print $3; exit }')
 GALACTIC_PORT=${GALACTIC_PORT:-7777}
 
@@ -22,5 +20,23 @@ if [ -f .env ]; then
   set +a
 fi
 
-echo "Starting Bloom services..."
+# Start worker and aggregator as host processes (they need filesystem + git access)
+echo "Starting worker service on port 3001..."
+cd services/worker
+ANTHROPIC_API_KEY="${CLAUDE_API_KEY}" AGGREGATOR_URL="http://localhost:3002" node index.js &
+WORKER_PID=$!
+cd ../..
+
+echo "Starting aggregator service on port 3002..."
+cd services/aggregator
+ANTHROPIC_API_KEY="${CLAUDE_API_KEY}" node aggregator.js &
+AGGREGATOR_PID=$!
+cd ../..
+
+echo "Worker PID: $WORKER_PID, Aggregator PID: $AGGREGATOR_PID"
+
+# Trap to kill host processes on exit
+trap "kill $WORKER_PID $AGGREGATOR_PID 2>/dev/null" EXIT
+
+echo "Starting Bloom Docker services (frontend + atomizer)..."
 docker compose up "$@"
