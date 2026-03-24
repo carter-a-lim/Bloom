@@ -3,8 +3,12 @@ const { exec, spawn } = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+const { WebSocketServer } = require('ws');
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
 const port = 3000;
 
 app.use(express.json());
@@ -12,38 +16,56 @@ app.use(express.json());
 // In-memory store for workers
 const workers = {};
 
+// Broadcast a message to all connected WebSocket clients
+function broadcast(msg) {
+  const data = JSON.stringify(msg);
+  wss.clients.forEach((client) => {
+    if (client.readyState === 1) client.send(data);
+  });
+}
+
+wss.on('connection', (ws) => {
+  console.log('Canvas connected via WebSocket');
+  ws.on('error', console.error);
+});
+
 app.post('/workers', async (req, res) => {
   try {
-    const workerId = crypto.randomUUID();
-    const worktreePath = path.join(__dirname, `worker-${workerId}`);
-
-    // Create the worktree
-    await executeCommand(`git worktree add ${worktreePath} -b worker-${workerId}`);
-
-    let isolateResult = '';
-    try {
-        // Assign a local IP using Galactic CLI
-        // Ensure we run the command inside the worktree directory.
-        isolateResult = await executeCommand('galactic isolate', worktreePath);
-    } catch (e) {
-        console.warn('Galactic CLI not found or failed, skipping IP assignment for testing.', e);
-        isolateResult = 'Mocked IP: 127.0.0.100'; // mock for testing purposes if galactic isn't installed
+    const { nodeId, taskLabel } = req.body;
+    if (!nodeId || !taskLabel) {
+      return res.status(400).json({ error: 'Missing nodeId or taskLabel' });
     }
 
-    // Extract IP from isolateResult if possible, or just assume it worked.
-    // In a real scenario, `galactic isolate` probably sets up network namespaces or assigns an IP.
+    const worktreePath = path.join(__dirname, `worker-${nodeId}`);
 
-    // Store worker info
-    workers[workerId] = {
-      id: workerId,
-      path: worktreePath,
-      isolateResult,
-    };
+    // Create the worktree
+    await executeCommand(`git worktree add ${worktreePath} -b worker-${nodeId}`);
 
-    res.status(201).json({
-      message: 'Worker created successfully',
-      worker: workers[workerId],
-    });
+    let isolatedIp = '127.0.0.100';
+    try {
+      const result = await executeCommand('galactic isolate', worktreePath);
+      const match = result.match(/http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/);
+      if (match) isolatedIp = match[0];
+    } catch (e) {
+      console.warn('Galactic not available, using mock IP');
+    }
+
+    workers[nodeId] = { id: nodeId, path: worktreePath, isolatedIp, taskLabel, status: 'yellow' };
+
+    // Respond immediately — tests run async
+    res.status(201).json({ workerId: nodeId, status: 'yellow', isolatedIp });
+
+    // Run tests in background and broadcast result
+    executeCommand('npm test', worktreePath)
+      .then(() => {
+        workers[nodeId].status = 'green';
+        broadcast({ type: 'TASK_COMPLETE', nodeId, status: 'Success' });
+      })
+      .catch((err) => {
+        workers[nodeId].status = 'red';
+        broadcast({ type: 'TASK_FAILED', nodeId, status: 'Blocked', error: err.message });
+      });
+
   } catch (error) {
     console.error('Failed to create worker:', error);
     res.status(500).json({ error: error.message });
@@ -63,10 +85,8 @@ app.delete('/workers/:id', async (req, res) => {
     }
 
     try {
-        // Remove the worktree
         await executeCommand(`git worktree remove --force ${worker.path}`);
-        await executeCommand(`git branch -D worker-${workerId}`); // Clean up branch
-
+        await executeCommand(`git branch -D worker-${workerId}`);
         delete workers[workerId];
         res.json({ message: 'Worker removed successfully' });
     } catch (error) {
@@ -88,6 +108,6 @@ function executeCommand(command, cwd = __dirname) {
   });
 }
 
-app.listen(port, () => {
-  console.log(`Backend service listening at http://localhost:${port}`);
+server.listen(port, () => {
+  console.log(`Worker service listening at http://localhost:${port}`);
 });

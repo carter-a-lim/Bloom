@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -30,6 +30,31 @@ const states: TaskState[] = ['Thinking', 'Coding', 'Success', 'Blocked'];
 export default function Canvas() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+
+  // Connect to worker WebSocket and map task events to node state
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:3001');
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'TASK_COMPLETE' || msg.type === 'TASK_FAILED') {
+          const newState: TaskState = msg.status === 'Success' ? 'Success' : 'Blocked';
+          setNodes((nds) =>
+            nds.map((n) =>
+              n.id === msg.nodeId ? { ...n, data: { ...n.data, state: newState } } : n
+            )
+          );
+        }
+      } catch (e) {
+        console.error('Failed to parse worker message', e);
+      }
+    };
+
+    ws.onerror = (e) => console.warn('Worker WebSocket error', e);
+
+    return () => ws.close();
+  }, []);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),

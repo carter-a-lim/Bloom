@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/carter-a-lim/Bloom#readme",
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "ws": "^8.18.0"
   }
 }
