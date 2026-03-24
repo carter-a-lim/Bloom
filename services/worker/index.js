@@ -2,6 +2,7 @@ const express = require('express');
 const { exec, execFile } = require('child_process');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 const { WebSocketServer } = require('ws');
 
 const app = express();
@@ -12,6 +13,10 @@ const port = 3000;
 app.use(express.json());
 
 const workers = {};
+// parentId -> { total, completed, branches[] }
+const parentGroups = {};
+
+const AGGREGATOR_URL = process.env.AGGREGATOR_URL || 'http://localhost:3002';
 
 function broadcast(msg) {
   const data = JSON.stringify(msg);
@@ -27,7 +32,7 @@ wss.on('connection', (ws) => {
 
 app.post('/workers', async (req, res) => {
   try {
-    const { nodeId, taskLabel } = req.body;
+    const { nodeId, taskLabel, parentId, siblingCount } = req.body;
     if (!nodeId || !taskLabel) {
       return res.status(400).json({ error: 'Missing nodeId or taskLabel' });
     }
@@ -40,16 +45,26 @@ app.post('/workers', async (req, res) => {
     if (!match) throw new Error('Failed to extract IP from PowerShell output: ' + result);
 
     const isolatedIp = match[0];
-    workers[nodeId] = { id: nodeId, isolatedIp, taskLabel, status: 'yellow' };
+    const branchName = `worker-${nodeId}`;
+    workers[nodeId] = { id: nodeId, isolatedIp, taskLabel, parentId, branchName, status: 'yellow' };
+
+    // Register in parent group for aggregation tracking
+    if (parentId && siblingCount) {
+      if (!parentGroups[parentId]) {
+        parentGroups[parentId] = { total: siblingCount, completed: 0, branches: [] };
+      }
+      parentGroups[parentId].branches.push(branchName);
+    }
 
     res.status(201).json({ workerId: nodeId, status: 'yellow', isolatedIp });
 
-    // Run tests in the worktree async, broadcast result
+    // Run tests async, broadcast result, trigger aggregator if all siblings done
     const worktreePath = path.join(projectRoot, '.trees', nodeId);
     executeCommand('npm test', worktreePath)
       .then(() => {
         workers[nodeId].status = 'green';
         broadcast({ type: 'TASK_COMPLETE', nodeId, status: 'Success' });
+        if (parentId) checkAndAggregate(parentId);
       })
       .catch((err) => {
         workers[nodeId].status = 'red';
@@ -86,6 +101,31 @@ app.delete('/workers/:id', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+function checkAndAggregate(parentId) {
+  const group = parentGroups[parentId];
+  if (!group) return;
+  group.completed++;
+  if (group.completed < group.total) return;
+
+  // All siblings done — call aggregator
+  const body = JSON.stringify({ parentBranch: `worker-${parentId}`, childBranches: group.branches });
+  const url = new URL(`${AGGREGATOR_URL}/aggregate`);
+  const reqLib = url.protocol === 'https:' ? https : http;
+  const req = reqLib.request({ hostname: url.hostname, port: url.port, path: url.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
+    let data = '';
+    res.on('data', (chunk) => data += chunk);
+    res.on('end', () => {
+      const result = JSON.parse(data);
+      const type = result.status === 'success' ? 'TASK_COMPLETE' : 'TASK_FAILED';
+      broadcast({ type, nodeId: parentId, status: result.status === 'success' ? 'Success' : 'Blocked' });
+    });
+  });
+  req.on('error', (e) => console.error('Aggregator call failed:', e.message));
+  req.write(body);
+  req.end();
+  delete parentGroups[parentId];
+}
 
 function executeFileCommand(file, args, cwd = __dirname) {
   return new Promise((resolve, reject) => {

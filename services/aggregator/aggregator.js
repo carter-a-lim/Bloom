@@ -299,3 +299,26 @@ module.exports = {
   gatherDiffs,
   resolveLogicalConflictsWithLLM
 };
+
+// HTTP server so the worker can trigger aggregation
+const express = require('express');
+const aggregatorApp = express();
+aggregatorApp.use(express.json());
+
+aggregatorApp.post('/aggregate', async (req, res) => {
+  const { parentBranch, childBranches } = req.body;
+  if (!parentBranch || !Array.isArray(childBranches) || childBranches.length === 0) {
+    return res.status(400).json({ error: 'Missing parentBranch or childBranches' });
+  }
+  try {
+    await aggregatorNode(parentBranch, childBranches);
+    res.json({ status: 'success' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const AGGREGATOR_PORT = process.env.AGGREGATOR_PORT || 3002;
+aggregatorApp.listen(AGGREGATOR_PORT, () => {
+  console.log(`Aggregator service listening at http://localhost:${AGGREGATOR_PORT}`);
+});

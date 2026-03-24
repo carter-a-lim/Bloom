@@ -35,11 +35,14 @@ services:
       - "3001:3000"
     environment:
       - GALACTIC_CONFIG_PATH=${GALACTIC_CONFIG_PATH}
+      - AGGREGATOR_URL=http://aggregator:3002
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/workers', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
       interval: 10s
       timeout: 5s
       retries: 5
+    depends_on:
+      - aggregator
     networks:
       - bloom-net
 
@@ -47,6 +50,8 @@ services:
     build:
       context: ./services/aggregator
       dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
     environment:
       - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
     networks:
