@@ -119,7 +119,6 @@ export default function Canvas() {
     setPrompt('');
 
     const taskId = `task-${++taskCounter.current}`;
-    const childNodes: { id: string; label: string; description: string }[] = [];
     let rootId: string | null = null;
     const yOffset = taskCounter.current * 420;
 
@@ -128,38 +127,102 @@ export default function Canvas() {
     const ws = new WebSocket('ws://localhost:8000/ws/atomizer');
     ws.onopen = () => ws.send(JSON.stringify({ prompt: taskPrompt, model: taskModel }));
 
+    const parentMap: Record<string, string | null> = {};
+    const childrenMap: Record<string, string[]> = {};
+    const depthMap: Record<string, number> = {};
+    const leafNodes: { id: string; label: string; description: string; atomic: boolean }[] = [];
+
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === 'node') {
-        const { id, label, description, parentId } = msg.data;
+        const { id, label, description, parentId, atomic } = msg.data;
         const isRoot = !parentId;
         if (isRoot) rootId = id;
         nodeMetaMap[id] = { label, description: description || '' };
+        parentMap[id] = parentId ?? null;
+        depthMap[id] = parentId ? (depthMap[parentId] ?? 0) + 1 : 0;        if (parentId) {
+          childrenMap[parentId] = [...(childrenMap[parentId] || []), id];
+        }
+
+        // Compute depth for Y position
+        const depth = depthMap[id] ?? 0;
+
+        // Temporary X: siblings so far among same parent
+        const siblings = parentId ? (childrenMap[parentId] || []) : [];
+        const sibIdx = siblings.length - 1;
+        const tempX = isRoot ? 400 : 400 + sibIdx * 260;
+
         const newNode: Node<TaskNodeData> = {
           id, type: 'task',
-          position: { x: isRoot ? 400 : 100 + childNodes.length * 260, y: yOffset + (isRoot ? 0 : 180) },
-          data: { label, state: 'Thinking' },
+          position: { x: tempX, y: yOffset + depth * 220 },
+          data: { label, state: 'Thinking', description: description || '' },
         };
         setNodes((nds) => [...nds, newNode]);
         if (parentId) {
           setEdges((eds) => [...eds, { id: `e-${parentId}-${id}`, source: parentId, target: id }]);
-          childNodes.push({ id, label, description: description || '' });
+        }
+        if (atomic !== false) {
+          leafNodes.push({ id, label, description: description || '', atomic: true });
         }
         setTasks((ts) => ts.map((t) => t.id === taskId ? { ...t, nodeIds: [...t.nodeIds, id] } : t));
       }
       if (msg.type === 'done') {
         ws.close();
+
+        // Reflow: count leaves per subtree, assign X by leaf index
+        const NODE_W = 200; // node width
+        const GAP = 20;     // gap between nodes
+        const SLOT = NODE_W + GAP;
+
+        // Count leaves in each subtree
+        const leafCount: Record<string, number> = {};
+        const allIds = Object.keys(depthMap);
+        // Process bottom-up by depth
+        const maxDepth = Math.max(...allIds.map(id => depthMap[id] ?? 0));
+        for (let d = maxDepth; d >= 0; d--) {
+          for (const id of allIds) {
+            if ((depthMap[id] ?? 0) !== d) continue;
+            const kids = childrenMap[id] || [];
+            leafCount[id] = kids.length === 0 ? 1 : kids.reduce((s, k) => s + (leafCount[k] ?? 1), 0);
+          }
+        }
+
+        // Assign X top-down: each node centered over its leaf slots
+        const assignedX: Record<string, number> = {};
+        const leafOffset: Record<string, number> = {}; // running leaf offset per node
+        assignedX[rootId!] = (leafCount[rootId!] * SLOT) / 2 - SLOT / 2;
+        leafOffset[rootId!] = 0;
+
+        // BFS top-down
+        const queue2 = [rootId!];
+        while (queue2.length) {
+          const n = queue2.shift()!;
+          const kids = childrenMap[n] || [];
+          let offset = (assignedX[n] ?? 0) - ((leafCount[n] ?? 1) * SLOT) / 2 + SLOT / 2;
+          for (const k of kids) {
+            assignedX[k] = offset + ((leafCount[k] ?? 1) * SLOT) / 2 - SLOT / 2;
+            offset += (leafCount[k] ?? 1) * SLOT;
+            queue2.push(k);
+          }
+        }
+
         setNodes((nds) =>
-          nds.map((n) => childNodes.find((c) => c.id === n.id) ? { ...n, data: { ...n.data, state: 'Coding' } } : n)
+          nds.map((n) => {
+            const x = assignedX[n.id] ?? n.position.x;
+            const y = yOffset + (depthMap[n.id] ?? 0) * 220;
+            const isLeaf = leafNodes.some(l => l.id === n.id);
+            return { ...n, position: { x, y }, data: { ...n.data, state: isLeaf ? 'Coding' : n.data.state } };
+          })
         );
-        for (const child of childNodes) {
-          const meta = nodeMetaMap[child.id] || { label: child.label, description: '' };
+
+        for (const leaf of leafNodes) {
+          const meta = nodeMetaMap[leaf.id] || { label: leaf.label, description: '' };
           fetch('http://localhost:3001/workers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              nodeId: child.id, taskLabel: meta.label, taskDescription: meta.description,
-              parentId: rootId, siblingCount: childNodes.length,
+              nodeId: leaf.id, taskLabel: meta.label, taskDescription: meta.description,
+              parentId: rootId, siblingCount: leafNodes.length,
               repoUrl: taskRepoUrl || undefined, model: taskModel,
             }),
           }).catch(console.error);
@@ -325,6 +388,25 @@ export default function Canvas() {
           >
             Run Task
           </motion.button>
+          {nodes.length > 0 && (
+            <motion.button
+              onClick={() => {
+                const tree = nodes.map(n => ({
+                  id: n.id,
+                  label: n.data.label,
+                  state: n.data.state,
+                  parentId: edges.find(e => e.target === n.id)?.source ?? null,
+                }));
+                navigator.clipboard.writeText(JSON.stringify(tree, null, 2));
+              }}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
+              className="mt-2 w-full py-2 rounded-xl text-sm font-medium text-white transition-opacity"
+              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              Copy Node Tree
+            </motion.button>
+          )}
         </div>
       </motion.div>
 

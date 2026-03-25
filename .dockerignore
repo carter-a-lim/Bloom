@@ -4,3 +4,5 @@ node_modules
 *.log
 .env
 .env.local
+services/worker/node_modules
+services/aggregator/node_modules

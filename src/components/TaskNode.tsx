@@ -5,6 +5,7 @@ type TaskState = 'Thinking' | 'Coding' | 'Success' | 'Blocked';
 export type TaskNodeData = {
   label: string;
   state: TaskState;
+  description?: string;
 };
 
 const stateConfig: Record<TaskState, { glow: string; dot: string; label: string; border: string; bg: string }> = {
@@ -72,6 +73,12 @@ export default function TaskNode({ data }: { data: TaskNodeData }) {
       <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)', lineHeight: 1.4, margin: 0, fontWeight: 500 }}>
         {data.label}
       </p>
+
+      {data.description && (
+        <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', lineHeight: 1.4, margin: '6px 0 0', fontWeight: 400 }}>
+          {data.description}
+        </p>
+      )}
 
       <Handle type="source" position={Position.Bottom}
         style={{ background: cfg.dot, border: 'none', width: 8, height: 8 }} />
