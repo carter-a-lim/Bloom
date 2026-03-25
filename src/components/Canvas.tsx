@@ -35,19 +35,10 @@ type TaskEntry = {
 const nodeMetaMap: Record<string, { label: string; description: string }> = {};
 
 const MODELS = [
-  { group: 'Claude', options: [
-    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' },
-  ]},
-  { group: 'Groq (fast, free tier)', options: [
+  { group: 'Groq', options: [
     { value: 'groq/llama-3.3-70b-versatile', label: 'Llama 3.3 70B' },
     { value: 'groq/llama-3.1-8b-instant', label: 'Llama 3.1 8B (fastest)' },
     { value: 'groq/mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
-  ]},
-  { group: 'Ollama (local)', options: [
-    { value: 'ollama/llama3', label: 'Llama 3' },
-    { value: 'ollama/mistral', label: 'Mistral' },
-    { value: 'ollama/codellama', label: 'CodeLlama' },
   ]},
 ];
 
@@ -59,7 +50,7 @@ export default function Canvas() {
   const [selectedRepo, setSelectedRepo] = useState('');
   const [addingRepo, setAddingRepo] = useState(false);
   const [newRepo, setNewRepo] = useState('');
-  const [model, setModel] = useState('claude-3-5-sonnet-20241022');
+  const [model, setModel] = useState('groq/llama-3.3-70b-versatile');
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const taskCounter = useRef(0);
 
@@ -134,37 +125,48 @@ export default function Canvas() {
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'node') {
-        const { id, label, description, parentId, atomic } = msg.data;
+      const processNode = (id: string, label: string, description: string, parentId: string | null, atomic: boolean) => {
         const isRoot = !parentId;
         if (isRoot) rootId = id;
         nodeMetaMap[id] = { label, description: description || '' };
         parentMap[id] = parentId ?? null;
-        depthMap[id] = parentId ? (depthMap[parentId] ?? 0) + 1 : 0;        if (parentId) {
+        depthMap[id] = parentId ? (depthMap[parentId] ?? 0) + 1 : 0;
+        if (parentId) {
           childrenMap[parentId] = [...(childrenMap[parentId] || []), id];
         }
-
-        // Compute depth for Y position
         const depth = depthMap[id] ?? 0;
-
-        // Temporary X: siblings so far among same parent
         const siblings = parentId ? (childrenMap[parentId] || []) : [];
         const sibIdx = siblings.length - 1;
         const tempX = isRoot ? 400 : 400 + sibIdx * 260;
-
-        const newNode: Node<TaskNodeData> = {
-          id, type: 'task',
-          position: { x: tempX, y: yOffset + depth * 220 },
-          data: { label, state: 'Thinking', description: description || '' },
+        return {
+          node: { id, type: 'task', position: { x: tempX, y: yOffset + depth * 220 }, data: { label, state: 'Thinking' as const, description: description || '' } } as Node<TaskNodeData>,
+          edge: parentId ? { id: `e-${parentId}-${id}`, source: parentId, target: id } : null,
+          isLeaf: atomic !== false,
+          nodeId: id, label, description: description || '',
         };
-        setNodes((nds) => [...nds, newNode]);
-        if (parentId) {
-          setEdges((eds) => [...eds, { id: `e-${parentId}-${id}`, source: parentId, target: id }]);
-        }
-        if (atomic !== false) {
-          leafNodes.push({ id, label, description: description || '', atomic: true });
-        }
+      };
+
+      if (msg.type === 'node') {
+        const { id, label, description, parentId, atomic } = msg.data;
+        const { node, edge, isLeaf } = processNode(id, label, description, parentId, atomic);
+        setNodes((nds) => [...nds, node]);
+        if (edge) setEdges((eds) => [...eds, edge]);
+        if (isLeaf) leafNodes.push({ id, label, description: description || '', atomic: true });
         setTasks((ts) => ts.map((t) => t.id === taskId ? { ...t, nodeIds: [...t.nodeIds, id] } : t));
+      }
+      if (msg.type === 'nodes') {
+        const newNodes: Node<TaskNodeData>[] = [];
+        const newEdges: any[] = [];
+        for (const n of msg.data) {
+          const { id, label, description, parentId, atomic } = n;
+          const { node, edge, isLeaf } = processNode(id, label, description, parentId, atomic);
+          newNodes.push(node);
+          if (edge) newEdges.push(edge);
+          if (isLeaf) leafNodes.push({ id, label, description: description || '', atomic: true });
+        }
+        setNodes((nds) => [...nds, ...newNodes]);
+        if (newEdges.length) setEdges((eds) => [...eds, ...newEdges]);
+        setTasks((ts) => ts.map((t) => t.id === taskId ? { ...t, nodeIds: [...t.nodeIds, ...newNodes.map(n => n.id)] } : t));
       }
       if (msg.type === 'done') {
         ws.close();
