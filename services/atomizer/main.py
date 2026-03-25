@@ -74,25 +74,29 @@ async def parse_and_emit(websocket, stream_response, emitted_ids, node_depth, ro
         return
 
     batch = []
+    llm_id_map = {}  # maps LLM-provided id → our real uuid, so features can find their parent
+
     for task in nodes:
-        node_id = task.get("id") or str(uuid.uuid4())
-        if node_id in emitted_ids:
-            node_id = str(uuid.uuid4())
-        parent_id = task.get("parentId")
-        if not parent_id or parent_id not in emitted_ids:
+        llm_id = task.get("id")
+        # resolve parent: check our id map first, then emitted_ids directly (for layer node ids)
+        raw_parent = task.get("parentId")
+        parent_id = llm_id_map.get(raw_parent) or (raw_parent if raw_parent in emitted_ids else None)
+        if not parent_id:
             continue
         depth = node_depth.get(parent_id, 0) + 1
         if depth > 3:
             continue
-        # Accept "label" or "name"
         label = (task.get("label") or task.get("name") or "").strip()
         if not label or label.lower() in ("unnamed", "untitled", "node", "task", "root"):
             continue
-        if len(label) > 50:
-            label = label[:50].rsplit(' ', 1)[0] or label[:50]
+        if len(label) > 60:
+            label = label[:60].rsplit(' ', 1)[0] or label[:60]
         atomic = task.get("atomic", True)
         if atomic and depth < 2:
             atomic = False
+        node_id = str(uuid.uuid4())
+        if llm_id:
+            llm_id_map[llm_id] = node_id  # register so children can resolve this parent
         emitted_ids.add(node_id)
         node_depth[node_id] = depth
         batch.append({
@@ -106,18 +110,16 @@ async def parse_and_emit(websocket, stream_response, emitted_ids, node_depth, ro
 
         # Handle nested features if LLM put them inside the group object
         for feat in task.get("features", task.get("children", [])):
-            feat_id = feat.get("id") or str(uuid.uuid4())
-            if feat_id in emitted_ids:
-                feat_id = str(uuid.uuid4())
             feat_label = (feat.get("label") or feat.get("name") or "").strip()
             if not feat_label:
                 continue
-            if len(feat_label) > 50:
-                feat_label = feat_label[:50].rsplit(' ', 1)[0] or feat_label[:50]
-            emitted_ids.add(feat_id)
-            node_depth[feat_id] = depth + 1
+            if len(feat_label) > 60:
+                feat_label = feat_label[:60].rsplit(' ', 1)[0] or feat_label[:60]
             if depth + 1 > 3:
                 continue
+            feat_id = str(uuid.uuid4())
+            emitted_ids.add(feat_id)
+            node_depth[feat_id] = depth + 1
             batch.append({
                 "id": feat_id, "label": feat_label,
                 "description": feat.get("description", ""),
@@ -135,7 +137,30 @@ async def decompose(websocket, prompt, root_id):
     emitted_ids = {root_id}
     node_depth = {root_id: 0}
 
-    # Phase 1: pick tech stack in one focused call
+    # Phase 0: Software Architect defines MVP feature scope
+    scope_resp = await llm([
+        {"role": "system", "content": f"""{ARCHITECT_PERSONA}
+
+Define the MVP feature scope for this project. List ONLY what a user needs to get core value — cut anything that isn't essential.
+For each feature, note which layer owns it.
+
+Respond with ONLY a JSON array (no markdown):
+[{{"feature": "<user-facing feature name>", "layer": "Frontend|Backend|Both", "description": "<one sentence on what it does>"}}]"""},
+        {"role": "user", "content": f'Project: "{prompt}"\nWhat are the essential MVP features? Be ruthless — cut anything that isn\'t core.'}
+    ])
+
+    mvp_features = []
+    try:
+        text = scope_resp.choices[0].message.content
+        s, e = text.find('['), text.rfind(']') + 1
+        if s != -1 and e > s:
+            mvp_features = json.loads(text[s:e])
+    except Exception:
+        pass
+
+    mvp_summary = "\n".join(f"- {f['feature']}: {f.get('description','')}" for f in mvp_features) if mvp_features else ""
+
+    # Phase 1: pick tech stack
     tech_resp = await llm([
         {"role": "system", "content": f"""{ARCHITECT_PERSONA}
 
@@ -185,29 +210,32 @@ If no backend needed (single-player game, CLI tool), set backend to null."""},
     if backend_id:
         layer_nodes.append({"id": backend_id, "layer": "Backend", "tech": backend_tech})
 
-    # Phase 3: one MVP-focused call per layer, with sibling context to avoid overlap
+    # Phase 3: specialist per layer, grounded in MVP scope
     all_layer_labels = [f"{l['layer']} ({l['tech']})" for l in layer_nodes]
 
     for layer in layer_nodes:
         persona = BACKEND_PERSONA if layer["layer"] == "Backend" else FRONTEND_PERSONA
         other_layers = [l for l in all_layer_labels if not l.startswith(layer["layer"])]
         overlap_note = f"\nOther layers: {', '.join(other_layers)}. Do NOT duplicate features that belong there." if other_layers else ""
+        mvp_context = f"\n\nMVP feature scope — cover ALL of these for your layer, nothing more:\n{mvp_summary}" if mvp_summary else ""
 
         resp = await llm([
             {"role": "system", "content": f"""{persona}
 
-Break down the "{layer['layer']} ({layer['tech']})" layer of: "{prompt}"{overlap_note}
+Break down the "{layer['layer']} ({layer['tech']})" layer of: "{prompt}"{overlap_note}{mvp_context}
 Layer node id: "{layer['id']}"
 
-Output a flat JSON array. Each item is either a GROUP or a FEATURE:
-- GROUP: {{ "id": "<uuid4>", "label": "<domain name>", "description": "<one sentence>", "parentId": "{layer['id']}", "atomic": false }}
-- FEATURE: {{ "id": "<uuid4>", "label": "<concrete task>", "description": "<what it does>", "parentId": "<group uuid>", "atomic": true }}
+Every MVP feature above that touches this layer MUST appear. Do not add anything outside MVP scope.
 
-Label rules — features must be CONCRETE implementation tasks, not vague concepts:
-{"Backend examples: 'bcrypt password hash', 'JWT refresh token', 'Redis session cache', 'S3 multipart upload', 'Stripe webhook handler', 'PostgreSQL full-text search', 'rate limit middleware', 'DB connection pool'" if layer["layer"] == "Backend" else "Frontend examples: 'virtualized video grid', 'HLS.js player integration', 'Zustand auth store', 'React.lazy route split', 'ARIA live region alerts', 'IntersectionObserver lazy load', 'service worker cache', 'Lighthouse CI budget'"}
+Output a flat JSON array:
+- GROUP: {{"id":"<uuid4>","label":"<domain>","description":"<one sentence>","parentId":"{layer['id']}","atomic":false}}
+- FEATURE: {{"id":"<uuid4>","label":"<concrete task>","description":"<file, what it does, what it connects to>","parentId":"<group uuid>","atomic":true}}
 
-Aim for 5-8 groups, 3-5 features each. Every group must have its features immediately after it. Raw JSON array only."""},
-            {"role": "user", "content": f'Project: "{prompt}"\nLayer: {layer["layer"]} ({layer["tech"]})\nList concrete implementation tasks.'}
+Feature labels must be concrete implementation tasks:
+{"Examples: 'bcrypt password hash', 'JWT refresh token', 'S3 multipart upload', 'HLS transcoding job', 'full-text search index', 'view count increment', 'comment CRUD endpoints', 'subscription follow table'" if layer["layer"] == "Backend" else "Examples: 'HLS.js player component', 'WebSocket message hook', 'Zustand auth store', 'React.lazy route split', 'virtualized message list', 'WebRTC audio stream setup', 'optimistic message update', 'infinite scroll feed'"}
+
+5-8 groups, 3-5 features each. Groups must have features immediately after. Real uuid4 ids. Raw JSON only."""},
+            {"role": "user", "content": f'Project: "{prompt}"\nLayer: {layer["layer"]} ({layer["tech"]})\nImplement all MVP features for this layer.'}
         ], stream=True, max_tokens=4000)
 
         await parse_and_emit(websocket, resp, emitted_ids, node_depth, root_id)
