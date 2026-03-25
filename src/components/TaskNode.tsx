@@ -18,13 +18,13 @@ export default function TaskNode({ data }: { data: TaskNodeData }) {
       WebkitBackdropFilter: 'blur(16px)',
       borderRadius: '14px',
       padding: '12px 16px',
-      minWidth: '180px',
-      maxWidth: '240px',
+      minWidth: '160px',
+      maxWidth: '200px',
     }}>
-      <Handle type="target" position={Position.Top}
+      <Handle type="target" position={Position.Left}
         style={{ background: isLeaf ? '#a78bfa' : 'rgba(255,255,255,0.3)', border: 'none', width: 8, height: 8 }} />
 
-      <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4, margin: 0, fontWeight: isLeaf ? 400 : 600 }}>
+      <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4, margin: 0, fontWeight: isLeaf ? 400 : 600 }}>
         {data.label}
       </p>
 
@@ -34,7 +34,7 @@ export default function TaskNode({ data }: { data: TaskNodeData }) {
         </p>
       )}
 
-      <Handle type="source" position={Position.Bottom}
+      <Handle type="source" position={Position.Right}
         style={{ background: isLeaf ? '#a78bfa' : 'rgba(255,255,255,0.3)', border: 'none', width: 8, height: 8 }} />
     </div>
   );

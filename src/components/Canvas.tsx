@@ -6,6 +6,7 @@ import {
   Controls,
   Background,
   BackgroundVariant,
+  MiniMap,
   applyNodeChanges,
   applyEdgeChanges,
   Node,
@@ -14,6 +15,8 @@ import {
   EdgeChange,
   Connection,
   addEdge,
+  useReactFlow,
+  ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -38,6 +41,15 @@ const MODELS = [
 ];
 
 export default function Canvas() {
+  return (
+    <ReactFlowProvider>
+      <CanvasInner />
+    </ReactFlowProvider>
+  );
+}
+
+function CanvasInner() {
+  const { fitView } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [prompt, setPrompt] = useState('');
@@ -68,6 +80,7 @@ export default function Canvas() {
 
     const depthMap: Record<string, number> = {};
     const childrenMap: Record<string, string[]> = {};
+    const childCountMap: Record<string, number> = {};
 
     const ws = new WebSocket('ws://localhost:8000/ws/atomizer');
     ws.onopen = () => ws.send(JSON.stringify({ prompt: taskPrompt, model }));
@@ -75,11 +88,15 @@ export default function Canvas() {
     const processNode = (id: string, label: string, description: string, parentId: string | null, atomic: boolean) => {
       if (!parentId) rootId = id;
       depthMap[id] = parentId ? (depthMap[parentId] ?? 0) + 1 : 0;
-      if (parentId) childrenMap[parentId] = [...(childrenMap[parentId] || []), id];
+      if (parentId) {
+        childrenMap[parentId] = [...(childrenMap[parentId] || []), id];
+        childCountMap[parentId] = (childCountMap[parentId] ?? 0) + 1;
+      }
       const depth = depthMap[id];
+      const sibIdx = parentId ? (childCountMap[parentId] ?? 1) - 1 : 0;
       const node: Node<TaskNodeData> = {
         id, type: 'task',
-        position: { x: 400, y: yOffset + depth * 220 },
+        position: { x: depth * 280, y: yOffset + sibIdx * 140 },
         data: { label, description: description || '', isLeaf: atomic !== false },
       };
       const edge = parentId ? { id: `e-${parentId}-${id}`, source: parentId, target: id, style: { stroke: 'rgba(255,255,255,0.1)' } } : null;
@@ -115,8 +132,9 @@ export default function Canvas() {
         ws.close();
         setBlueprints((bs) => bs.map((b) => b.id === bpId ? { ...b, status: 'done' } : b));
 
-        // Reflow layout
-        const SLOT = 240;
+        // Horizontal reflow: depth → X, siblings → Y
+        const SLOT = 120; // vertical slot per leaf
+        const DEPTH_W = 280; // horizontal spacing per depth level
         const leafCount: Record<string, number> = {};
         const allIds = Object.keys(depthMap);
         const maxDepth = Math.max(...allIds.map((id) => depthMap[id] ?? 0));
@@ -127,23 +145,27 @@ export default function Canvas() {
             leafCount[id] = kids.length === 0 ? 1 : kids.reduce((s, k) => s + (leafCount[k] ?? 1), 0);
           }
         }
-        const assignedX: Record<string, number> = {};
-        assignedX[rootId!] = (leafCount[rootId!] * SLOT) / 2 - SLOT / 2;
+        const assignedY: Record<string, number> = {};
+        assignedY[rootId!] = (leafCount[rootId!] * SLOT) / 2 - SLOT / 2;
         const queue = [rootId!];
         while (queue.length) {
           const n = queue.shift()!;
           const kids = childrenMap[n] || [];
-          let offset = (assignedX[n] ?? 0) - ((leafCount[n] ?? 1) * SLOT) / 2 + SLOT / 2;
+          let offset = (assignedY[n] ?? 0) - ((leafCount[n] ?? 1) * SLOT) / 2 + SLOT / 2;
           for (const k of kids) {
-            assignedX[k] = offset + ((leafCount[k] ?? 1) * SLOT) / 2 - SLOT / 2;
+            assignedY[k] = offset + ((leafCount[k] ?? 1) * SLOT) / 2 - SLOT / 2;
             offset += (leafCount[k] ?? 1) * SLOT;
             queue.push(k);
           }
         }
         setNodes((nds) => nds.map((n) => ({
           ...n,
-          position: { x: assignedX[n.id] ?? n.position.x, y: yOffset + (depthMap[n.id] ?? 0) * 220 },
+          position: {
+            x: (depthMap[n.id] ?? 0) * DEPTH_W,
+            y: (assignedY[n.id] ?? 0) + yOffset,
+          },
         })));
+        setTimeout(() => fitView({ padding: 0.1, duration: 600 }), 50);
       }
     };
 
@@ -280,6 +302,11 @@ export default function Canvas() {
         >
           <Background variant={BackgroundVariant.Dots} color="rgba(255,255,255,0.06)" gap={28} size={1} />
           <Controls />
+          <MiniMap
+            nodeColor={(n) => n.data?.isLeaf ? '#7c3aed' : 'rgba(255,255,255,0.15)'}
+            maskColor="rgba(0,0,0,0.6)"
+            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
+          />
         </ReactFlow>
       </div>
     </div>
